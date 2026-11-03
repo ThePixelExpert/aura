@@ -1,0 +1,199 @@
+# Aura, self-hosted. Save this file as compose.yaml anywhere, edit the three CHANGE_ME values, then:
+#
+#     docker compose up -d
+#
+# and open http://localhost:3010. Everything runs on your machine; the only traffic that leaves it goes to the AI provider
+# you choose (your own API key, entered in Settings -> AI Providers).
+#
+# Needs Docker Engine 24+ with Compose v2.23+.  Stop: docker compose down.  Update: docker compose pull && docker compose up -d
+name: aura
+
+# ── 1. Secrets (required) ────────────────────────────────────────────────────────────────────────────────────────────────
+# Generate each one and paste it between the quotes:
+#   api_token, broker_token:  openssl rand -hex 32
+#   master_key:               head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '='
+# BACK UP master_key. It seals the key files in the data volume; lose it and the sealed credentials cannot be opened.
+x-secrets:
+  api_token: &api_token "CHANGE_ME"
+  master_key: &master_key "CHANGE_ME"
+  broker_token: &broker_token "CHANGE_ME"
+
+# ── 2. Address ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+# What you type in the browser. If you reach Aura from another device, change this AND the port mapping under `frontend`,
+# and set ui_login there (a login in front of the page), and put HTTPS in front of it.
+x-address: &public_url "http://localhost:3010"
+
+# ── 3. Which models do what (only used with local models, see "Local models" at the bottom) ───────────────────────────────
+# Names are Ollama tags (https://ollama.com/library). One model can fill several roles, which saves memory.
+#   PARENT  the model you chat with; plans and calls tools (must support tool calling)   WORKER  delegated sub-agents
+#   SUMMARY background titles/summaries/memory upkeep (small is fine)                     OCR     text from images and scans
+#   CODER   optional: edits an app's code when you comment on it (empty = WORKER)
+# Rough sizes: 4B ~3 GB, 8B ~6 GB, 14B ~9 GB of GPU memory or RAM. CPU-only works but is slow; stay with 4B models.
+x-models: &models
+  ENGINE_MODEL_PARENT: gemma4:e4b
+  ENGINE_MODEL_WORKER: gemma4:e4b
+  ENGINE_MODEL_SUMMARY: qwen3.5:4b
+  ENGINE_MODEL_OCR: glm-ocr
+  ENGINE_MODEL_CODER: ""
+
+x-hardened: &hardened
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+services:
+  # The web UI, and the only door to the API (it adds the access token itself, so the browser never holds it).
+  frontend:
+    <<: *hardened
+    image: ghcr.io/thepixelexpert/aura-frontend:latest
+    container_name: aura-nas-frontend
+    ports:
+      # Loopback only. To reach Aura from other devices use "0.0.0.0:3010:80" (or your LAN/Tailscale IP) AND set ui_login.
+      - "127.0.0.1:3010:80"
+    environment:
+      AURA_API_TOKEN: *api_token
+      # Optional login: user:hash from   printf 'aura:%s\n' "$(openssl passwd -6)"   (single-quote it in YAML).
+      AURA_UI_BASIC_AUTH: ""
+    cap_add: [CHOWN, SETUID, SETGID, NET_BIND_SERVICE, DAC_OVERRIDE]
+    depends_on: [backend]
+
+  # The Aura engine and API: the agent loop, tools, memory, files, sync.
+  backend:
+    <<: *hardened
+    image: ghcr.io/thepixelexpert/aura-backend:latest
+    container_name: aura-nas-backend
+    depends_on: [sandbox, docker-proxy]
+    networks: [default, docker-api-net, aura-apps, apps-broker-net]
+    environment:
+      <<: *models
+      AURA_NAS_API_TOKEN: *api_token
+      AURA_MASTER_KEY: *master_key
+      APPS_BROKER_TOKEN: *broker_token
+      APPS_BROKER_URL: http://aura-nas-apps-broker:8080
+      FRONTEND_ORIGIN: *public_url
+      PUBLIC_URL: *public_url
+      VAULT_PATH: /vault
+      DB_PATH: /data/aura-nas.db
+      DOCKER_HOST: tcp://docker-proxy:2375
+      SELF_CONTAINER_NAME: aura-nas-backend
+      SANDBOX_CONTAINER_NAME: aura-nas-sandbox
+      # "1" = bring your own provider key (nothing else is contacted). "0" = also use local models: set the two lines below
+      # as shown and start with   docker compose --profile models up -d
+      AURA_HOSTED_ONLY: "1"
+      MODEL_GATEWAY_URL: http://ollama:11434
+      MODEL_GATEWAY_KEY: ollama
+      # Only if ENGINE_MODEL_CODER is set:  ENGINE_CODER_URL: http://ollama:11434/v1   and   ENGINE_CODER_KEY: ollama
+      AURA_MODEL_CONTEXT: "32768"
+      DECISION_URL: ""
+      # One-click Google/Microsoft sign-in goes through this relay, only when you click it. Email app passwords and calendar
+      # links work without it. Point it at your own relay, or ignore it.
+      AURA_CONNECT_URL: https://connect.edwardstech.dev
+    volumes:
+      # Your files (Aura reads and writes only inside this) and its database. To use a folder on the host instead, write e.g.
+      # ./vault:/vault; it must be owned by uid 1000.
+      - vault:/vault
+      - data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Where Aura's shell and browser tools run, away from your secrets. No ports, own network.
+  sandbox:
+    <<: *hardened
+    image: ghcr.io/thepixelexpert/aura-sandbox:latest
+    container_name: aura-nas-sandbox
+    environment:
+      BROWSER_EXECUTABLE_PATH: /usr/bin/chromium
+    volumes:
+      - vault:/vault
+    networks: [sandbox-net]
+
+  # The backend's only route to Docker: filtered to `exec` into the sandbox, nothing else. Holds the Docker socket, which is
+  # root-equivalent on the host, so it has no published port and sits on an internal network.
+  docker-proxy:
+    <<: *hardened
+    image: ghcr.io/thepixelexpert/aura-docker-proxy:latest
+    container_name: aura-nas-docker-proxy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [docker-api-net]
+
+  # Builds and runs the small web apps Aura creates for you, from files it uploads, with enforced limits. Also holds the Docker
+  # socket. Delete this service (and APPS_BROKER_* above) if you do not want Aura to start containers.
+  apps-broker:
+    <<: *hardened
+    image: ghcr.io/thepixelexpert/aura-apps-broker:latest
+    container_name: aura-nas-apps-broker
+    environment:
+      APPS_BROKER_TOKEN: *broker_token
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks: [apps-broker-net]
+
+  # ── Local models (optional) ────────────────────────────────────────────────────────────────────────────────────────────
+  # Off by default. Turn on: set AURA_HOSTED_ONLY "0" above, then   docker compose --profile models up -d
+  # The first start downloads the models named in section 3 (model-puller shows progress: docker compose logs -f model-puller).
+  # NVIDIA GPU: install the NVIDIA Container Toolkit and uncomment the `deploy` block. Change a role's model: edit section 3,
+  # then run the same command again.
+  ollama:
+    profiles: [models]
+    image: ollama/ollama:latest
+    container_name: aura-nas-ollama
+    restart: unless-stopped
+    environment:
+      OLLAMA_CONTEXT_LENGTH: "32768"      # the engine wants at least this; more uses more memory
+      OLLAMA_MAX_LOADED_MODELS: "1"
+      OLLAMA_NUM_PARALLEL: "1"
+      OLLAMA_KEEP_ALIVE: 5m
+    volumes:
+      - ollama:/root/.ollama
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  model-puller:
+    profiles: [models]
+    image: ollama/ollama:latest
+    container_name: aura-nas-model-puller
+    restart: "no"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      <<: *models
+      OLLAMA_HOST: ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        for m in $$(printf '%s\n' "$$ENGINE_MODEL_PARENT" "$$ENGINE_MODEL_WORKER" "$$ENGINE_MODEL_SUMMARY" "$$ENGINE_MODEL_OCR" "$$ENGINE_MODEL_CODER" | sed '/^$$/d' | sort -u); do
+          echo "== $$m"; ollama pull "$$m" || echo "FAILED to pull $$m (check the name in section 3)"
+        done
+        echo "models ready"
+
+volumes:
+  vault:
+  data:
+  ollama:
+
+networks:
+  docker-api-net:
+    internal: true
+  apps-broker-net:
+    internal: true
+  # Fixed name: web apps Aura starts join it so the backend can proxy them.
+  aura-apps:
+    name: aura-apps
+  sandbox-net:
