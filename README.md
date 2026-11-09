@@ -1,23 +1,33 @@
 # Aura, self-hosted
 
-Aura is a set of Docker images plus one compose file, `compose.yaml`. No clone, no build, no scripts.
+Aura is a set of Docker images plus one compose file, `compose.yaml`. No clone, no build, no scripts required.
 
 ## On any machine
 
 1. Install Docker (Engine 24+ with Compose v2.23+, or Docker Desktop).
-2. Get the file and replace the three `CHANGE_ME` values (it says how to generate each):
+2. Get the file, generate the three secrets, and start it, in one command:
+
+   ```bash
+   mkdir aura && cd aura
+   curl -fsSL https://raw.githubusercontent.com/ThePixelExpert/aura/main/install.sh | sh
+   ```
+
+   This downloads `compose.yaml`, fills in `api_token`, `master_key` and `broker_token` with
+   fresh random values (and prints the `master_key` once so you can back it up), then runs
+   `docker compose up -d`. Safe to re-run — if the secrets are already set, it skips straight
+   to starting the stack.
+
+   Prefer to do it by hand, with no script at all? Download just the compose file and replace
+   the three `CHANGE_ME` values yourself (the file's comments say how to generate each):
 
    ```bash
    mkdir aura && cd aura
    curl -fsSLO https://raw.githubusercontent.com/ThePixelExpert/aura/main/compose.yaml
-   ```
-3. Run:
-
-   ```bash
+   # edit the three CHANGE_ME values, then:
    docker compose up -d
    ```
 
-4. Open <http://localhost:3010>, go to Settings -> AI Providers, and add your provider key.
+3. Open <http://localhost:3010>, go to Settings -> AI Providers, and add your provider key.
 
 That is the whole setup. `docker compose pull && docker compose up -d` updates; `docker compose down` stops (your data stays in Docker volumes).
 
@@ -73,7 +83,7 @@ click it (set `AURA_CONNECT_URL` for your own relay; email app passwords and cal
 
 ## Troubleshooting
 
-- **UI exits at start**: a `CHANGE_ME` is still in the file. **Backend errors about the master key**: it must be exactly 32 random bytes, base64url.
+- **UI exits at start**: a `CHANGE_ME` is still in the file — run `install.sh` (works on an existing `compose.yaml` too), or set the three secrets by hand. **Backend errors about the master key**: it must be exactly 32 random bytes, base64url.
 - **Model download hangs on DNS**: a strict host firewall may only allow DNS from the address ranges it knew about; Docker moves to a new range when the old one is used up. Remove unused networks (`docker network prune`) or allow DNS from the new range.
 - **Port in use**: change the left side of `127.0.0.1:3010:80`, and `x-address` to match.
 
