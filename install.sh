@@ -95,8 +95,19 @@ if grep -q '^    # deploy:$' "$COMPOSE_FILE"; then
   fi
 fi
 
+# The ollama/model-puller services are gated behind the "models" Compose profile and never
+# start on a plain "docker compose up -d", even with AURA_HOSTED_ONLY set to "0" - that env
+# var only controls what the *backend* does, Compose still needs --profile models to actually
+# start the ollama container at all. Add it automatically so turning on AURA_HOSTED_ONLY "0"
+# is the only thing anyone has to remember.
+compose_args=""
+if grep -q 'AURA_HOSTED_ONLY: "0"' "$COMPOSE_FILE"; then
+  compose_args="--profile models"
+  echo "Local models are on (AURA_HOSTED_ONLY: \"0\") - starting with --profile models so ollama actually comes up."
+fi
+
 echo "Starting Aura..."
-docker compose up -d
+docker compose $compose_args up -d
 
 echo
 echo "Aura is starting. Open http://localhost:3010 (or whatever address you set via"
