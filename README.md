@@ -4,18 +4,26 @@ Aura is a set of Docker images plus one compose file, `compose.yaml`. No clone, 
 
 ## On any machine
 
-1. Install Docker (Engine 24+ with Compose v2.23+, or Docker Desktop).
+1. Install Docker (Engine 24+ with Compose v2.23+, Docker Desktop on Windows/macOS).
 2. Get the file, generate the three secrets, and start it, in one command:
 
+   **macOS / Linux** (bash):
    ```bash
    mkdir aura && cd aura
    curl -fsSL https://raw.githubusercontent.com/ThePixelExpert/aura/main/install.sh | sh
    ```
 
-   This downloads `compose.yaml`, fills in `api_token`, `master_key` and `broker_token` with
-   fresh random values (and prints the `master_key` once so you can back it up), then runs
-   `docker compose up -d`. Safe to re-run — if the secrets are already set, it skips straight
-   to starting the stack.
+   **Windows** (PowerShell — the "Windows PowerShell" app that's already on your machine
+   works, no need to install anything extra):
+   ```powershell
+   mkdir aura; cd aura
+   irm https://raw.githubusercontent.com/ThePixelExpert/aura/main/install.ps1 | iex
+   ```
+
+   Either one downloads `compose.yaml`, fills in `api_token`, `master_key` and `broker_token`
+   with fresh random values (and prints the `master_key` once so you can back it up), then
+   runs `docker compose up -d`. Safe to re-run — if the secrets are already set, it skips
+   straight to starting the stack.
 
    Prefer to do it by hand, with no script at all? Download just the compose file and replace
    the three `CHANGE_ME` values yourself (the file's comments say how to generate each):
@@ -40,25 +48,26 @@ That is the whole setup. `docker compose pull && docker compose up -d` updates; 
 | Login in front of the UI | `frontend.environment.AURA_UI_BASIC_AUTH` | none (fine on loopback; required before exposing) |
 | Which model does what | `x-models` | see below |
 | Local models on/off | `AURA_HOSTED_ONLY` + `--profile models` | off: bring your own provider key |
-| GPU for local models | auto-enabled by `install.sh` if an NVIDIA GPU is usable; by hand, uncomment `deploy:` under `ollama` | CPU |
+| GPU for local models | auto-enabled by `install.sh`/`install.ps1` if an NVIDIA GPU is usable; by hand, uncomment `deploy:` under `ollama` | CPU |
 | Where your files live | `backend.volumes` | Docker volume `vault` (a host folder works too, owned by uid 1000) |
 
 Back up the `master_key` and the `vault` and `data` volumes.
 
 ## Local models
 
-Set `AURA_HOSTED_ONLY: "0"` and start with `docker compose --profile models up -d` (or re-run `install.sh`, which does this check
-every time). The first start downloads the models named in `x-models`. Edit that block to choose models per job, then run the same
-command again.
+Set `AURA_HOSTED_ONLY: "0"` and start with `docker compose --profile models up -d` (or re-run `install.sh`/`install.ps1`, which
+does this check every time). The first start downloads the models named in `x-models`. Edit that block to choose models per job,
+then run the same command again.
 
-**GPU:** if you have an NVIDIA GPU with the NVIDIA Container Toolkit installed, `install.sh` detects it (checks that `nvidia-smi`
-works and that Docker has the `nvidia` runtime registered) and enables GPU acceleration automatically — nothing to edit by hand.
-Verify a model is actually using it with `docker exec aura-nas-ollama nvidia-smi`. Once the GPU is visible to the container, Ollama
-decides on its own how much of a model fits in VRAM and spills the rest to system RAM/CPU — that part needs no configuration either
-way. Running `docker compose` directly instead of `install.sh`? Uncomment the `deploy:` block under `ollama` in `compose.yaml`
-yourself. AMD/Intel GPUs aren't auto-detected (different image/device setup, e.g. ROCm) — happy to add that if you need it.
+**GPU:** if you have an NVIDIA GPU with the NVIDIA Container Toolkit installed (Windows: just the NVIDIA driver — see below),
+`install.sh`/`install.ps1` detects it (checks that `nvidia-smi` works and that Docker has the `nvidia` runtime registered) and
+enables GPU acceleration automatically — nothing to edit by hand. Verify a model is actually using it with
+`docker exec aura-nas-ollama nvidia-smi`. Once the GPU is visible to the container, Ollama decides on its own how much of a
+model fits in VRAM and spills the rest to system RAM/CPU — that part needs no configuration either way. Running `docker compose`
+directly instead of the install script? Uncomment the `deploy:` block under `ollama` in `compose.yaml` yourself. AMD/Intel GPUs
+aren't auto-detected (different image/device setup, e.g. ROCm) — happy to add that if you need it.
 
-**Don't have the NVIDIA driver / Container Toolkit yet?** `nvidia-smi` failing, or `install.sh` printing "No usable NVIDIA GPU
+**Don't have the NVIDIA driver / Container Toolkit yet?** `nvidia-smi` failing, or the installer printing "No usable NVIDIA GPU
 detected", usually means one of these two pieces is missing:
 
 - **Linux, native Docker Engine** (most self-hosts): install the driver via your distro — Ubuntu/Debian:
@@ -75,6 +84,8 @@ detected", usually means one of these two pieces is missing:
   ```
   (Full steps, other distros: <https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html>.)
   Then just re-run `install.sh` (or `./install.sh` if you already have `compose.yaml`) — it picks the GPU up automatically.
+- **Windows, native Docker Engine inside WSL2** (not Docker Desktop): this is Linux as far as the toolkit is concerned — follow
+  the Linux steps above, run *inside* your WSL2 distro, not on Windows itself.
 - **Windows with Docker Desktop (WSL2 backend)**: install the regular NVIDIA GeForce/Studio driver *on Windows itself*, not
   inside WSL — it already includes WSL GPU support, and Docker Desktop passes the GPU through on its own. No Container
   Toolkit step needed inside WSL. Confirm with `nvidia-smi` inside your WSL distro; if that works, Docker already has it.
@@ -114,7 +125,7 @@ click it (set `AURA_CONNECT_URL` for your own relay; email app passwords and cal
 
 ## Troubleshooting
 
-- **UI exits at start**: a `CHANGE_ME` is still in the file — run `install.sh` (works on an existing `compose.yaml` too), or set the three secrets by hand. **Backend errors about the master key**: it must be exactly 32 random bytes, base64url.
+- **UI exits at start**: a `CHANGE_ME` is still in the file — run `install.sh` (macOS/Linux) or `install.ps1` (Windows) (both work on an existing `compose.yaml` too), or set the three secrets by hand. **Backend errors about the master key**: it must be exactly 32 random bytes, base64url.
 - **Model download hangs on DNS**: a strict host firewall may only allow DNS from the address ranges it knew about; Docker moves to a new range when the old one is used up. Remove unused networks (`docker network prune`) or allow DNS from the new range.
 - **Port in use**: change the left side of `127.0.0.1:3010:80`, and `x-address` to match.
 
