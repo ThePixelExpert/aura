@@ -137,8 +137,12 @@ services:
   # ── Local models (optional) ────────────────────────────────────────────────────────────────────────────────────────────
   # Off by default. Turn on: set AURA_HOSTED_ONLY "0" above, then   docker compose --profile models up -d
   # The first start downloads the models named in section 3 (model-puller shows progress: docker compose logs -f model-puller).
-  # NVIDIA GPU: install the NVIDIA Container Toolkit and uncomment the `deploy` block. Change a role's model: edit section 3,
-  # then run the same command again.
+  # NVIDIA GPU: install.sh auto-enables the `deploy` block below if it detects a usable GPU (nvidia-smi works AND Docker has
+  # the nvidia runtime registered) and the block is still commented out. Running compose by hand instead of install.sh?
+  # Install the NVIDIA Container Toolkit and uncomment the block yourself. Change a role's model: edit section 3, then run
+  # the same command again. Once the GPU is visible to the container, Ollama itself decides how much of a model fits in
+  # VRAM and automatically spills the rest to system RAM/CPU - nothing to configure for that part.
+  # AMD/Intel GPUs need a different image/device setup (ROCm, etc.) and are not auto-detected - see the README.
   ollama:
     profiles: [models]
     image: ollama/ollama:latest
