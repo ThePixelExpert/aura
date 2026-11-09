@@ -62,6 +62,39 @@ else
   echo "Secrets already set in $COMPOSE_FILE - skipping generation."
 fi
 
+# ---- GPU auto-enable (only affects the optional local-models ollama service) --------------
+# Ollama itself already splits a model's layers between GPU VRAM and system RAM/CPU on its
+# own at runtime - there is nothing to configure for that "spill over" behaviour. The only
+# manual step compose.yaml used to require was telling Docker it may hand the GPU to the
+# container at all. If a usable NVIDIA GPU is detected, enable that automatically; otherwise
+# leave it alone (CPU-only, which still works, just slower). AMD/Intel GPUs need a different
+# Ollama image/device setup and are not auto-detected here - see the README if that's you.
+if grep -q '^    # deploy:$' "$COMPOSE_FILE"; then
+  gpu_usable=0
+  if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
+    if docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q '"nvidia"'; then
+      gpu_usable=1
+    fi
+  fi
+
+  if [ "$gpu_usable" = "1" ]; then
+    tmp2=$(mktemp)
+    sed \
+      -e 's/^    # deploy:$/    deploy:/' \
+      -e 's/^    #   resources:$/      resources:/' \
+      -e 's/^    #     reservations:$/        reservations:/' \
+      -e 's/^    #       devices:$/          devices:/' \
+      -e 's/^    #         - driver: nvidia$/            - driver: nvidia/' \
+      -e 's/^    #           count: all$/              count: all/' \
+      -e 's/^    #           capabilities: \[gpu\]$/              capabilities: [gpu]/' \
+      "$COMPOSE_FILE" > "$tmp2" && mv "$tmp2" "$COMPOSE_FILE"
+    echo "NVIDIA GPU detected and usable by Docker - enabled GPU acceleration for local models."
+  else
+    echo "No usable NVIDIA GPU detected - local models (if you turn them on) will run on CPU."
+    echo "(Have an NVIDIA GPU but see this? Install the NVIDIA Container Toolkit, then re-run this script.)"
+  fi
+fi
+
 echo "Starting Aura..."
 docker compose up -d
 

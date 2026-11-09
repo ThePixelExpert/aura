@@ -40,15 +40,23 @@ That is the whole setup. `docker compose pull && docker compose up -d` updates; 
 | Login in front of the UI | `frontend.environment.AURA_UI_BASIC_AUTH` | none (fine on loopback; required before exposing) |
 | Which model does what | `x-models` | see below |
 | Local models on/off | `AURA_HOSTED_ONLY` + `--profile models` | off: bring your own provider key |
-| GPU for local models | uncomment `deploy:` under `ollama` | CPU |
+| GPU for local models | auto-enabled by `install.sh` if an NVIDIA GPU is usable; by hand, uncomment `deploy:` under `ollama` | CPU |
 | Where your files live | `backend.volumes` | Docker volume `vault` (a host folder works too, owned by uid 1000) |
 
 Back up the `master_key` and the `vault` and `data` volumes.
 
 ## Local models
 
-Set `AURA_HOSTED_ONLY: "0"` and start with `docker compose --profile models up -d`. The first start downloads the models named in
-`x-models`. Edit that block to choose models per job, then run the same command again:
+Set `AURA_HOSTED_ONLY: "0"` and start with `docker compose --profile models up -d` (or re-run `install.sh`, which does this check
+every time). The first start downloads the models named in `x-models`. Edit that block to choose models per job, then run the same
+command again.
+
+**GPU:** if you have an NVIDIA GPU with the NVIDIA Container Toolkit installed, `install.sh` detects it (checks that `nvidia-smi`
+works and that Docker has the `nvidia` runtime registered) and enables GPU acceleration automatically — nothing to edit by hand.
+Verify a model is actually using it with `docker exec aura-nas-ollama nvidia-smi`. Once the GPU is visible to the container, Ollama
+decides on its own how much of a model fits in VRAM and spills the rest to system RAM/CPU — that part needs no configuration either
+way. Running `docker compose` directly instead of `install.sh`? Uncomment the `deploy:` block under `ollama` in `compose.yaml`
+yourself. AMD/Intel GPUs aren't auto-detected (different image/device setup, e.g. ROCm) — happy to add that if you need it.
 
 | Role | Job | Default |
 | --- | --- | --- |
