@@ -90,6 +90,9 @@ services:
       # One-click Google/Microsoft sign-in goes through this relay, only when you click it. Email app passwords and calendar
       # links work without it. Point it at your own relay, or ignore it.
       AURA_CONNECT_URL: https://connect.edwardstech.dev
+      # "Comment" / Live Edit on your own apps needs a capability link normally issued by a hosted edge, which a self-host has
+      # none of. This opts the backend into inspecting the app itself instead - same feature, no edge required.
+      AURA_DEV_APP_INSPECT: "1"
     volumes:
       # Your files (Aura reads and writes only inside this) and its database. To use a folder on the host instead, write e.g.
       # ./vault:/vault; it must be owned by uid 1000.
