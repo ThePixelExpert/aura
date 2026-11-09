@@ -58,6 +58,29 @@ decides on its own how much of a model fits in VRAM and spills the rest to syste
 way. Running `docker compose` directly instead of `install.sh`? Uncomment the `deploy:` block under `ollama` in `compose.yaml`
 yourself. AMD/Intel GPUs aren't auto-detected (different image/device setup, e.g. ROCm) — happy to add that if you need it.
 
+**Don't have the NVIDIA driver / Container Toolkit yet?** `nvidia-smi` failing, or `install.sh` printing "No usable NVIDIA GPU
+detected", usually means one of these two pieces is missing:
+
+- **Linux, native Docker Engine** (most self-hosts): install the driver via your distro — Ubuntu/Debian:
+  `sudo ubuntu-drivers autoinstall` (or `sudo apt install nvidia-driver-<version>` for a specific branch), reboot, then confirm
+  with `nvidia-smi`. Then add the NVIDIA Container Toolkit:
+  ```bash
+  curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+  curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+    sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+    sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+  sudo apt update && sudo apt install -y nvidia-container-toolkit
+  sudo nvidia-ctk runtime configure --runtime=docker
+  sudo systemctl restart docker
+  ```
+  (Full steps, other distros: <https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html>.)
+  Then just re-run `install.sh` (or `./install.sh` if you already have `compose.yaml`) — it picks the GPU up automatically.
+- **Windows with Docker Desktop (WSL2 backend)**: install the regular NVIDIA GeForce/Studio driver *on Windows itself*, not
+  inside WSL — it already includes WSL GPU support, and Docker Desktop passes the GPU through on its own. No Container
+  Toolkit step needed inside WSL. Confirm with `nvidia-smi` inside your WSL distro; if that works, Docker already has it.
+- **macOS**: not supported. Docker Desktop on Mac has no GPU passthrough at all (Apple Silicon has no NVIDIA GPU, and Intel
+  Macs can't pass one through either) — local models there always run on CPU, GPU or not.
+
 | Role | Job | Default |
 | --- | --- | --- |
 | `PARENT` | The model you chat with; plans and calls tools. Biggest effect on quality. | `gemma4:e4b` |
