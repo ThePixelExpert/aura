@@ -123,8 +123,19 @@ if ($content.Contains("    # deploy:")) {
     }
 }
 
+# The ollama/model-puller services are gated behind the "models" Compose profile and never
+# start on a plain "docker compose up -d", even with AURA_HOSTED_ONLY set to "0" - that env
+# var only controls what the *backend* does, Compose still needs --profile models to actually
+# start the ollama container at all. Add it automatically so turning on AURA_HOSTED_ONLY "0"
+# is the only thing anyone has to remember.
+$composeArgs = @()
+if ((Get-Content -Path $ComposeFile -Raw).Contains('AURA_HOSTED_ONLY: "0"')) {
+    $composeArgs = @('--profile', 'models')
+    Write-Host "Local models are on (AURA_HOSTED_ONLY: `"0`") - starting with --profile models so ollama actually comes up."
+}
+
 Write-Host "Starting Aura..."
-docker compose up -d
+docker compose @composeArgs up -d
 
 Write-Host ""
 Write-Host "Aura is starting. Open http://localhost:3010 (or whatever address you set via"
