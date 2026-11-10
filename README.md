@@ -127,6 +127,7 @@ click it (set `AURA_CONNECT_URL` for your own relay; email app passwords and cal
 
 - **UI exits at start**: a `CHANGE_ME` is still in the file — run `install.sh` (macOS/Linux) or `install.ps1` (Windows) (both work on an existing `compose.yaml` too), or set the three secrets by hand. **Backend errors about the master key**: it must be exactly 32 random bytes, base64url.
 - **Model download hangs on DNS**: a strict host firewall may only allow DNS from the address ranges it knew about; Docker moves to a new range when the old one is used up. Remove unused networks (`docker network prune`) or allow DNS from the new range.
+- **Aura doesn't come back after a reboot (Windows)**: the containers restart on their own (`restart: unless-stopped`), but only once Docker itself is running. Docker Desktop only starts when you sign in, and only if enabled: Docker Desktop → Settings → General → tick **Start Docker Desktop when you sign in to your computer**. Also: don't use "Quit Docker Desktop" or `docker compose stop`/`down` before shutting down, since stopped containers stay stopped (run `docker compose up -d` once to recover). Using native Docker Engine inside WSL2 instead? WSL does not start at boot by itself; enable systemd (`[boot]` `systemd=true` in `/etc/wsl.conf`, then `wsl --shutdown`) and add a Task Scheduler task at log on running `wsl -d <distro> --exec true` to wake it.
 - **Port in use**: change the left side of `127.0.0.1:3010:80`, and `x-address` to match.
 
 ## License

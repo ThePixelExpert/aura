@@ -186,7 +186,12 @@ services:
     command:
       - |
         for m in $$(printf '%s\n' "$$ENGINE_MODEL_PARENT" "$$ENGINE_MODEL_WORKER" "$$ENGINE_MODEL_SUMMARY" "$$ENGINE_MODEL_OCR" "$$ENGINE_MODEL_CODER" | sed '/^$$/d' | sort -u); do
-          echo "== $$m"; ollama pull "$$m" || echo "FAILED to pull $$m (check the name in section 3)"
+          case "$$m" in *:*) full="$$m" ;; *) full="$$m:latest" ;; esac
+          if ollama list | awk 'NR>1 {print $$1}' | grep -Fxq "$$full"; then
+            echo "== $$m (already downloaded, skipping)"
+          else
+            echo "== $$m"; ollama pull "$$m" || echo "FAILED to pull $$m (check the name in section 3)"
+          fi
         done
         echo "models ready"
 
